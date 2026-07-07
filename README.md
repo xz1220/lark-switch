@@ -43,11 +43,26 @@ Two ways to select an account:
 
 ## Install
 
+One line — downloads a prebuilt binary for your OS/arch from the latest
+[Release](https://github.com/xz1220/lark-switch/releases) into `~/.local/bin`:
+
 ```sh
-cd ~/repos/lark-switch
-go build -o lark-switch .
-cp lark-switch ~/go/bin/      # or anywhere on your PATH
+curl -fsSL https://raw.githubusercontent.com/xz1220/lark-switch/main/install.sh | sh
 ```
+
+Override with `LARK_SWITCH_VERSION=v0.3.0` or `LARK_SWITCH_BIN_DIR=/usr/local/bin`.
+
+<details>
+<summary>Build from source (needs Go 1.25+)</summary>
+
+```sh
+git clone https://github.com/xz1220/lark-switch.git
+cd lark-switch/src
+go build -o lark-switch .
+cp lark-switch ~/.local/bin/   # or anywhere on your PATH
+```
+
+</details>
 
 ### Shell integration
 
@@ -64,10 +79,15 @@ This defines an `lk` function: `lk use B` switches the shell; everything else
 
 This repo ships a [`SKILL.md`](SKILL.md) (+ [`references/`](references/)) so AI
 agents know how to drive `lark-switch` correctly — pick an account per command
-with stateless `run`, read `ls --json`, never `use` inside a tool call. It
-assumes the `lark-switch` **binary is already on PATH** (build + install above).
+with stateless `run`, read `ls --json`, never `use` inside a tool call.
 
-In Claude Code:
+The skill assumes the `lark-switch` **binary is on PATH**. Ask your agent to:
+
+> Install lark-switch from `https://github.com/xz1220/lark-switch`: run its
+> `install.sh` to put the binary on PATH, then install `SKILL.md` into this
+> agent's skills directory.
+
+In Claude Code the skill/plugin installs via Marketplace:
 
 ```bash
 /plugin marketplace add xz1220/lark-switch

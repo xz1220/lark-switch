@@ -18,7 +18,9 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+// version is overridden at release build time via
+// -ldflags "-X main.version=<git tag>"; see .github/workflows/release.yml.
+var version = "dev"
 
 func main() {
 	args := os.Args[1:]

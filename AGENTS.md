@@ -7,6 +7,7 @@ as a tool (account selection, `run` vs `use`, JSON output), the contract lives i
 ## Repo layout
 
 This repo is both a Go CLI (distributable binary) and a Claude skill/plugin.
+The root is kept skill-facing; all Go lives under `src/`.
 
 ```
 SKILL.md               # the skill — usage contract for agents (canonical)
@@ -15,22 +16,37 @@ references/            # skill deep-dives, loaded on demand
   commands.md          #   full command + flag reference
   json-output.md       #   ls --json / current --json schemas
 .claude-plugin/        # plugin.json + marketplace.json (installable from GitHub)
+.github/workflows/     # ci.yml (build+test), release.yml (cross-compile + publish)
+install.sh             # one-line installer: fetches a prebuilt release binary
 README.md              # human-facing docs
 AGENTS.md              # this file — dev notes
-main.go                # commands / CLI dispatch
-store.go               # account registry + env construction (envForAccount)
-status.go              # `lark-cli auth status` parsing
-lark_test.go           # tests
+src/                   # the Go module (self-contained)
+  go.mod
+  main.go              #   commands / CLI dispatch
+  store.go             #   account registry + env construction (envForAccount)
+  status.go            #   `lark-cli auth status` parsing
+  lark_test.go         #   tests
 ```
 
 ## Build & test
 
+Run Go commands from `src/` (the module root):
+
 - Go **stdlib only** — do not add dependencies.
-- Build: `go build -o lark-switch .`  ·  Test: `go test ./...`  ·  Vet: `go vet ./...`
-- Install: `cp lark-switch ~/.local/bin/` (or anywhere on PATH). The binary is
-  gitignored; never commit it.
-- Bump `version` in `main.go` and `version` in `.claude-plugin/plugin.json`
-  together on a release.
+- Build: `cd src && go build -o lark-switch .`
+- Test: `cd src && go test ./...`  ·  Vet: `cd src && go vet ./...`
+- Install locally: `cp src/lark-switch ~/.local/bin/`. The binary is gitignored;
+  never commit it.
+
+## Releasing
+
+- `version` in `main.go` is `"dev"` by default and injected at build time via
+  `-ldflags "-X main.version=<tag>"` — don't hardcode it per release.
+- Tag `vX.Y.Z` and push the tag: `release.yml` cross-compiles darwin/linux ×
+  amd64/arm64, packages `lark-switch_<tag>_<os>_<arch>.tar.gz` + `checksums.txt`,
+  and publishes a GitHub Release. `install.sh` resolves the latest tag and
+  downloads the matching asset — keep the asset naming and the script in sync.
+- Bump `version` in `.claude-plugin/plugin.json` on a release (skill version).
 
 ## Invariants — don't break these
 

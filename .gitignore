@@ -1,2 +1,7 @@
+# built binaries
 /lark-switch
+/src/lark-switch
+# release artifacts
+/dist/
+*.tar.gz
 *.tmp
