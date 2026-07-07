@@ -1,0 +1,12 @@
+{
+  "name": "lark-switch",
+  "description": "Select which Feishu/Lark account a lark-cli command runs as, across multiple tenants. Pins each account to its own config home so accounts run in parallel with no shared-state races. Agent-friendly: stateless `run`, JSON output, and a `use` that refuses to silently no-op in a tool call.",
+  "version": "0.2.0",
+  "author": {
+    "name": "xz1220"
+  },
+  "homepage": "https://github.com/xz1220/lark-switch",
+  "repository": "https://github.com/xz1220/lark-switch",
+  "license": "MIT",
+  "skills": "./"
+}

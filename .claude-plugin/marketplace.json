@@ -1,0 +1,19 @@
+{
+  "name": "lark-switch",
+  "owner": {
+    "name": "xz1220"
+  },
+  "metadata": {
+    "description": "gvm-style multi-account switcher for lark-cli (Lark/Feishu CLI) — parallel-safe, agent-native."
+  },
+  "plugins": [
+    {
+      "name": "lark-switch",
+      "source": {
+        "source": "github",
+        "repo": "xz1220/lark-switch"
+      },
+      "description": "Run lark-cli as any of several Feishu/Lark accounts (multi-tenant) without global-state races. Each account is pinned to its own config home; agents pick an identity per command with stateless `run` and machine-readable `ls --json`."
+    }
+  ]
+}

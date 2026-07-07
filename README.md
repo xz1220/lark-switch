@@ -60,6 +60,30 @@ eval "$(lark-switch shellenv)"
 This defines an `lk` function: `lk use B` switches the shell; everything else
 (`lk ls`, `lk run A -- …`) passes straight through to `lark-switch`.
 
+### As a Claude skill / plugin
+
+This repo ships a [`SKILL.md`](SKILL.md) (+ [`references/`](references/)) so AI
+agents know how to drive `lark-switch` correctly — pick an account per command
+with stateless `run`, read `ls --json`, never `use` inside a tool call. It
+assumes the `lark-switch` **binary is already on PATH** (build + install above).
+
+In Claude Code:
+
+```bash
+/plugin marketplace add xz1220/lark-switch
+/plugin install lark-switch
+```
+
+Or clone into any agent's skills directory (`~/.claude/skills/lark-switch`,
+`~/.codex/skills/lark-switch`, …):
+
+```bash
+git clone --depth 1 https://github.com/xz1220/lark-switch.git <skills-dir>/lark-switch
+```
+
+The agent-facing operating rules live in
+[`references/agent-playbook.md`](references/agent-playbook.md).
+
 ## Quickstart (two accounts, different tenants)
 
 ```sh
