@@ -182,6 +182,15 @@ func cmdUse(args []string) error {
 		fmt.Printf("export LARKSUITE_CLI_CONFIG_DIR=%s\n", shellQuote(expandHome(a.Dir)))
 	}
 	fmt.Printf("export LARK_SWITCH_CURRENT=%s\n", shellQuote(a.Name))
+	// When stdout is a terminal the exports above were merely displayed, not
+	// eval'd — the parent shell's environment is unchanged. Say so instead of
+	// pretending the switch happened.
+	if stdoutIsTTY() {
+		fmt.Fprintf(os.Stderr, "lark-switch: nothing was switched — a child process cannot change this shell's environment.\n")
+		fmt.Fprintf(os.Stderr, "  one-off:   eval \"$(command lark-switch use %s)\"\n", a.Name)
+		fmt.Fprintf(os.Stderr, "  permanent: add  eval \"$(lark-switch shellenv)\"  to ~/.zshrc, then `lark-switch use %s` just works\n", a.Name)
+		return nil
+	}
 	fmt.Fprintf(os.Stderr, "lark-switch: now using %q\n", a.Name)
 	return nil
 }
@@ -567,6 +576,10 @@ func useColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}
+	return stdoutIsTTY()
+}
+
+func stdoutIsTTY() bool {
 	fi, err := os.Stdout.Stat()
 	if err != nil {
 		return false
@@ -579,8 +592,8 @@ func bold(s string) string { return "\x1b[1m" + s + "\x1b[0m" }
 
 const shimZsh = `# lark-switch shell integration — add to ~/.zshrc (or ~/.bashrc):
 #   eval "$(lark-switch shellenv)"
-# then:  lk use B   |   lk ls   |   lk run A -- im +chat-list
-lk() {
+# then:  lark-switch use B   |   lk use B   |   lk run A -- im +chat-list
+lark-switch() {
   case "$1" in
     use)
       local _e
@@ -592,6 +605,7 @@ lk() {
       ;;
   esac
 }
+lk() { lark-switch "$@"; }
 `
 
 func usage() {
