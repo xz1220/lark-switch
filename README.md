@@ -37,7 +37,9 @@ Two ways to select an account:
 - **`use` (per-shell switch, gvm-style)** — needs the shell shim; `lk use B`
   changes only the *current* shell. A compiled binary can't mutate its parent
   shell, so (like gvm/nvm/direnv) `use` prints `export …` that a shell function
-  `eval`s — see [`shellenv`](#shell-integration).
+  `eval`s — see [`shellenv`](#shell-integration). Run *without* the shim (e.g.
+  in a script or an agent tool call) `use` refuses to pretend: it prints what
+  to do instead and exits 1.
 
 ## Install
 
@@ -97,14 +99,17 @@ Every `lark-cli` call (and every `lark-*` skill) inside that session is then
 pinned to the right account. Prefer this (or `run`) over `use` for agents —
 `use`/`profile use` mutate shared state and can surprise a parallel session.
 
+Agent-facing surfaces: `ls --json` / `current --json` for machine-readable
+state, and [AGENTS.md](AGENTS.md) for the full ruleset an agent should follow.
+
 ## Agent 操作多账号的实践说明
 
 这次用 `lark-switch` 给同一个飞书文档处理不同账号、不同群聊的权限时，最稳定的流程是先把账号状态查清楚，再把每条 `lark-cli` 命令固定到某个账号上执行。
 
-先用 `lark-switch ls` 看有哪些账号、哪个是当前默认账号：
+先用 `lark-switch ls` 看有哪些账号、哪个是当前默认账号（Agent 建议用 `--json`）：
 
 ```sh
-lark-switch ls
+lark-switch ls --json
 ```
 
 然后用 `whoami` 验证当前命令实际跑在哪个账号上：
@@ -130,7 +135,7 @@ LARKSUITE_CLI_CONFIG_DIR="$(lark-switch path dangdang)" lark-cli whoami
 LARKSUITE_CLI_CONFIG_DIR="$(lark-switch path dangdang)" lark-cli im +chat-list --as user --types group
 ```
 
-需要注意：在 Codex、Claude Code 这类 Agent 的工具调用里，`lark-switch use dangdang` 只会在那个子进程里打印环境变量，不能改变后续工具调用的父 shell 环境。因此不要写成：
+需要注意：在 Codex、Claude Code 这类 Agent 的工具调用里，`lark-switch use dangdang` 不能改变后续工具调用的父 shell 环境（在 shim 之外运行时它会直接报错退出）。因此不要写成：
 
 ```sh
 lark-switch use dangdang
@@ -156,12 +161,12 @@ any successful call; if an account goes untouched for >7 days you must re-login
 |---|---|
 | `add <name> [--dir <path>] [--init] [--domain ...]` | register an account; `--init` runs `config init` + `auth login` |
 | `login <name> [--domain ...\|--scope ...] [--init]` | (re)authorize an account |
-| `ls` | list accounts with user, token status, refresh window (current marked `*`) |
-| `use <name>` | switch the current shell (needs the shim) |
+| `ls [--json]` | list accounts with user, token status, refresh window (current marked `*`) |
+| `use <name>` | switch the current shell (needs the shim; exits 1 elsewhere) |
 | `run <name> -- <args>` | run one `lark-cli` command as `<name>` |
 | `each -- <args>` | run a command across all accounts |
 | `refresh [<name>\|--all]` | keep tokens alive |
-| `current` / `which` | show the account active in this shell |
+| `current [--json]` / `which` | show the account active in this shell |
 | `path [<name>]` | print an account's config home dir |
 | `rm <name> [--purge]` | unregister (`--purge` also deletes its home) |
 | `shellenv` | print the shell shim |

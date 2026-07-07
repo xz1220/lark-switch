@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	args := os.Args[1:]
@@ -182,16 +183,25 @@ func cmdUse(args []string) error {
 		fmt.Printf("export LARKSUITE_CLI_CONFIG_DIR=%s\n", shellQuote(expandHome(a.Dir)))
 	}
 	fmt.Printf("export LARK_SWITCH_CURRENT=%s\n", shellQuote(a.Name))
-	// When stdout is a terminal the exports above were merely displayed, not
-	// eval'd — the parent shell's environment is unchanged. Say so instead of
-	// pretending the switch happened.
-	if stdoutIsTTY() {
-		fmt.Fprintf(os.Stderr, "lark-switch: nothing was switched — a child process cannot change this shell's environment.\n")
-		fmt.Fprintf(os.Stderr, "  one-off:   eval \"$(command lark-switch use %s)\"\n", a.Name)
-		fmt.Fprintf(os.Stderr, "  permanent: add  eval \"$(lark-switch shellenv)\"  to ~/.zshrc, then `lark-switch use %s` just works\n", a.Name)
+	if os.Getenv("LARK_SWITCH_EVAL") != "" {
+		fmt.Fprintf(os.Stderr, "lark-switch: now using %q\n", a.Name)
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "lark-switch: now using %q\n", a.Name)
+	// Without LARK_SWITCH_EVAL nothing is eval'ing our stdout: the exports above
+	// were merely displayed and the parent's environment is unchanged. This is
+	// exactly what happens when an agent runs `use` in a tool call — fail loudly
+	// with the working alternative instead of pretending the switch happened.
+	fmt.Fprintf(os.Stderr, "lark-switch: nothing was switched — `use` only prints exports; a child process cannot change its parent's environment.\n")
+	if stdoutIsTTY() {
+		fmt.Fprintf(os.Stderr, "  one-off:   eval \"$(LARK_SWITCH_EVAL=1 lark-switch use %s)\"\n", a.Name)
+		fmt.Fprintf(os.Stderr, "  permanent: add  eval \"$(lark-switch shellenv)\"  to ~/.zshrc, then `lark-switch use %s` just works\n", a.Name)
+	} else {
+		fmt.Fprintf(os.Stderr, "  run one command as %s:  lark-switch run %s -- <lark-cli args>\n", a.Name, a.Name)
+		if !isDefaultHome(a.Dir) {
+			fmt.Fprintf(os.Stderr, "  or pin per command:     LARKSUITE_CLI_CONFIG_DIR=\"$(lark-switch path %s)\" lark-cli <args>\n", a.Name)
+		}
+	}
+	os.Exit(1)
 	return nil
 }
 
@@ -309,12 +319,41 @@ func cmdRefresh(args []string) error {
 	return nil
 }
 
+// lsRow is one account's full state — rendered either as a table row or, with
+// --json, marshaled directly (lowercase fields stay table-only).
+type lsRow struct {
+	Name             string `json:"name"`
+	Dir              string `json:"dir"`
+	Current          bool   `json:"current"`
+	DefaultHome      bool   `json:"default_home"`
+	Brand            string `json:"brand,omitempty"`
+	Note             string `json:"note,omitempty"`
+	User             string `json:"user,omitempty"`
+	OpenID           string `json:"open_id,omitempty"`
+	Status           string `json:"status"`
+	RefreshExpiresAt string `json:"refresh_expires_at,omitempty"`
+	RefreshInSeconds *int64 `json:"refresh_in_seconds,omitempty"`
+
+	configured bool
+	refresh    string
+	warn       bool
+}
+
 func cmdLs(args []string) error {
+	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	s, err := loadStore()
 	if err != nil {
 		return err
 	}
 	if len(s.Accounts) == 0 {
+		if *jsonOut {
+			fmt.Println(`{"accounts": []}`)
+			return nil
+		}
 		fmt.Println("no accounts registered yet.\n\nregister the existing default account, then add the second:")
 		fmt.Println("  lark-switch add A --dir ~/.lark-cli      # already-configured default")
 		fmt.Println("  lark-switch add B --init                 # new home + login")
@@ -322,36 +361,36 @@ func cmdLs(args []string) error {
 	}
 	larkCli, _ := larkCliPath()
 	cur := currentName(s)
-	color := useColor()
 
-	type row struct {
-		mark, name, user, status, refresh, dir string
-		warn                                   bool
-	}
-	rows := make([]row, 0, len(s.Accounts))
+	rows := make([]lsRow, 0, len(s.Accounts))
 	for i := range s.Accounts {
 		a := &s.Accounts[i]
-		r := row{mark: " ", name: a.Name, user: "-", status: "-", refresh: "-", dir: shortDir(a.Dir)}
-		if a.Name == cur {
-			r.mark = "*"
+		r := lsRow{
+			Name: a.Name, Dir: expandHome(a.Dir), Current: a.Name == cur,
+			DefaultHome: isDefaultHome(a.Dir), Brand: a.Brand, Note: a.Note,
+			Status: "unknown", refresh: "-",
 		}
-		if larkCli != "" {
+		if larkCli == "" {
+			r.Status = "lark-cli-not-found"
+		} else {
 			st, err := queryStatus(larkCli, a)
 			switch {
 			case err != nil:
-				r.status = "error"
+				r.Status = "error"
 			case !st.configured():
-				r.status = "not-configured"
+				r.Status = "not-configured"
 			default:
-				r.user = st.Identities.User.UserName
-				r.status = st.Identities.User.TokenStatus
-				if r.user == "" {
-					r.user = "(bot only)"
+				r.configured = true
+				r.User = st.Identities.User.UserName
+				r.OpenID = st.Identities.User.OpenID
+				r.Status = st.Identities.User.TokenStatus
+				if r.Status == "" {
+					r.Status = "unknown"
 				}
-				if r.status == "" {
-					r.status = "-"
-				}
+				r.RefreshExpiresAt = st.Identities.User.RefreshExpiresAt
 				if d, ok := refreshRemaining(st); ok {
+					sec := int64(d.Seconds())
+					r.RefreshInSeconds = &sec
 					r.refresh = humanDur(d)
 					r.warn = d < 48*time.Hour
 				}
@@ -360,17 +399,46 @@ func cmdLs(args []string) error {
 		rows = append(rows, r)
 	}
 
+	if *jsonOut {
+		out := struct {
+			Current  string  `json:"current,omitempty"`
+			Accounts []lsRow `json:"accounts"`
+		}{cur, rows}
+		b, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+
+	color := useColor()
 	fmt.Printf("%-2s %s %s %s %s %s\n", "", cell("NAME", 10), cell("USER", 14), cell("STATUS", 14), cell("REFRESH-IN", 11), "DIR")
 	for _, r := range rows {
-		name := cell(r.name, 10)
-		if color && r.mark == "*" {
+		mark := " "
+		if r.Current {
+			mark = "*"
+		}
+		name := cell(r.Name, 10)
+		if color && r.Current {
 			name = bold(name)
+		}
+		user := r.User
+		if user == "" {
+			user = "-"
+			if r.configured {
+				user = "(bot only)"
+			}
+		}
+		status := r.Status
+		if status == "unknown" {
+			status = "-"
 		}
 		refresh := cell(r.refresh, 11)
 		if color && r.warn {
 			refresh = red(refresh)
 		}
-		fmt.Printf("%-2s %s %s %s %s %s\n", r.mark, name, cell(r.user, 14), cell(r.status, 14), refresh, r.dir)
+		fmt.Printf("%-2s %s %s %s %s %s\n", mark, name, cell(user, 14), cell(status, 14), refresh, shortDir(r.Dir))
 	}
 	return nil
 }
@@ -417,6 +485,11 @@ func cmdRm(args []string) error {
 }
 
 func cmdCurrent(args []string) error {
+	fs := flag.NewFlagSet("current", flag.ContinueOnError)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	s, err := loadStore()
 	if err != nil {
 		return err
@@ -427,10 +500,26 @@ func cmdCurrent(args []string) error {
 		if dir == "" {
 			dir = defaultHome()
 		}
+		if *jsonOut {
+			b, _ := json.Marshal(struct {
+				Name *string `json:"name"`
+				Dir  string  `json:"dir"`
+			}{nil, dir})
+			fmt.Println(string(b))
+			return nil
+		}
 		fmt.Printf("(unregistered) %s\n", shortDir(dir))
 		return nil
 	}
 	a := s.find(name)
+	if *jsonOut {
+		b, _ := json.Marshal(struct {
+			Name string `json:"name"`
+			Dir  string `json:"dir"`
+		}{name, expandHome(a.Dir)})
+		fmt.Println(string(b))
+		return nil
+	}
 	fmt.Printf("%s\t%s\n", name, shortDir(a.Dir))
 	return nil
 }
@@ -597,7 +686,7 @@ lark-switch() {
   case "$1" in
     use)
       local _e
-      _e="$(command lark-switch use "${@:2}")" || return $?
+      _e="$(LARK_SWITCH_EVAL=1 command lark-switch use "${@:2}")" || return $?
       eval "$_e"
       ;;
     *)
@@ -619,12 +708,12 @@ COMMANDS:
                          register an account; --init runs config init + auth login
   login <name> [--domain ...|--scope ...] [--init]
                          (re)authorize an account
-  ls                     list accounts with user, token status, refresh window
+  ls [--json]            list accounts with user, token status, refresh window
   use <name>             switch the current shell to <name>   (needs the shim; see shellenv)
   run <name> -- <args>   run one lark-cli command as <name> (no global state change)
   each -- <args>         run a lark-cli command across all accounts
   refresh [<name>|--all] keep tokens alive (cron this; tokens lapse after ~7 idle days)
-  current | which        show the account active in this shell
+  current [--json]       show the account active in this shell (alias: which)
   path [<name>]          print an account's config home dir
   rm <name> [--purge]    unregister (and optionally delete its home)
   shellenv               print the shell shim (eval "$(lark-switch shellenv)")
@@ -633,7 +722,7 @@ COMMANDS:
 NOTES:
   • Each account is pinned to its own LARKSUITE_CLI_CONFIG_DIR home; the default
     home (~/.lark-cli) account never has that var set (its tokens live elsewhere).
-  • For parallel agent/terminal sessions prefer 'run' (or launch with the env var)
-    over 'use', which mutates only the current shell.
+  • AI agents / scripts: use 'run' (stateless) — never 'use', which needs the shell
+    shim and exits 1 elsewhere. Discover accounts with 'ls --json'. See AGENTS.md.
 `)
 }
