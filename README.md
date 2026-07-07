@@ -97,6 +97,48 @@ Every `lark-cli` call (and every `lark-*` skill) inside that session is then
 pinned to the right account. Prefer this (or `run`) over `use` for agents —
 `use`/`profile use` mutate shared state and can surprise a parallel session.
 
+## Agent 操作多账号的实践说明
+
+这次用 `lark-switch` 给同一个飞书文档处理不同账号、不同群聊的权限时，最稳定的流程是先把账号状态查清楚，再把每条 `lark-cli` 命令固定到某个账号上执行。
+
+先用 `lark-switch ls` 看有哪些账号、哪个是当前默认账号：
+
+```sh
+lark-switch ls
+```
+
+然后用 `whoami` 验证当前命令实际跑在哪个账号上：
+
+```sh
+lark-cli whoami
+lark-switch run dangdang -- whoami
+```
+
+对 Agent 来说，优先使用 `run` 做一次性调用：
+
+```sh
+lark-switch run dangdang -- im +chat-list --as user --types group --sort active_time
+lark-switch run dangdang -- im chat.members get --chat-id oc_xxx --member-id-type open_id --page-all
+lark-switch run dangdang -- drive +member-add --token "https://xxx.feishu.cn/wiki/..." \
+  --member-id "ou_a,ou_b" --member-type openid --perm full_access --perm-type container --yes
+```
+
+如果需要连续执行多条命令，也可以显式传账号目录：
+
+```sh
+LARKSUITE_CLI_CONFIG_DIR="$(lark-switch path dangdang)" lark-cli whoami
+LARKSUITE_CLI_CONFIG_DIR="$(lark-switch path dangdang)" lark-cli im +chat-list --as user --types group
+```
+
+需要注意：在 Codex、Claude Code 这类 Agent 的工具调用里，`lark-switch use dangdang` 只会在那个子进程里打印环境变量，不能改变后续工具调用的父 shell 环境。因此不要写成：
+
+```sh
+lark-switch use dangdang
+lark-cli whoami
+```
+
+也不要假设多条工具调用会继承上一条的账号切换。每条关键命令都应该用 `lark-switch run <name> -- ...`，或者在同一条命令里带上 `LARKSUITE_CLI_CONFIG_DIR=...`。默认账号 `~/.lark-cli` 比较特殊，手动设置环境变量可能让它看起来像未登录；因此默认账号也建议通过 `lark-switch run A -- ...` 进入。
+
 ## Keep tokens alive
 
 `lark-cli` user tokens use a **rolling ~7-day** refresh window that auto-extends on
